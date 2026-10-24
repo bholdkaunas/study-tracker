@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Study Tracker</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="A stopwatch and GitHub-style activity graph for your study time. Everything stays in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: one narrow column, GitHub-profile feel — stopwatch on top, contribution graph, stats, editable session ledger */
+:root{
+  --bg:#ffffff; --panel:#f6f8fa; --border:#d0d7de; --fg:#1f2328; --muted:#59636e;
+  --accent:#1a7f37; --accent-fg:#ffffff; --danger:#cf222e; --focus:#0969da;
+  --h0:#ebedf0; --h1:#9be9a8; --h2:#40c463; --h3:#30a14e; --h4:#216e39;
+  --p-blue:#0969da; --p-purple:#8250df; --p-green:#1a7f37; --p-orange:#bc4c00; --p-pink:#bf3989; --p-yellow:#9a6700; --p-gray:#57606a; --p-red:#cf222e; --p-teal:#1b7c83;
+  --font-body:"Instrument Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#9198a1;
+  --accent:#238636; --accent-fg:#ffffff; --danger:#f85149; --focus:#4493f8;
+  --h0:#161b22; --h1:#0e4429; --h2:#006d32; --h3:#26a641; --h4:#39d353;
+  --p-blue:#4493f8; --p-purple:#ab7df8; --p-green:#3fb950; --p-orange:#f0883e; --p-pink:#f778ba; --p-yellow:#d29922; --p-gray:#8b949e; --p-red:#ff7b72; --p-teal:#39c5cf;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#9198a1;
+  --accent:#238636; --accent-fg:#ffffff; --danger:#f85149; --focus:#4493f8;
+  --h0:#161b22; --h1:#0e4429; --h2:#006d32; --h3:#26a641; --h4:#39d353;
+  --p-blue:#4493f8; --p-purple:#ab7df8; --p-green:#3fb950; --p-orange:#f0883e; --p-pink:#f778ba; --p-yellow:#d29922; --p-gray:#8b949e; --p-red:#ff7b72; --p-teal:#39c5cf;
+  color-scheme:dark}
+.heat-cell[data-l="0"]{outline:1px solid color-mix(in srgb,var(--border) 45%,transparent);outline-offset:-1px}
+
+*{box-sizing:border-box}
+html{color-scheme:light}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+[hidden]{display:none!important}
+img{max-width:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.5}
+.wrap{max-width:900px;margin:0 auto;padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:20px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:22px;font-weight:700;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:15px;font-weight:600;margin:0}
+.sync{font-family:var(--font-mono);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--h3)} .dot.err{background:var(--danger)} .dot.busy{background:var(--p-yellow)}
+.panel{border:1px solid var(--border);border-radius:6px;background:var(--bg)}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--panel);border-radius:6px 6px 0 0}
+.panel-body{padding:16px}
+.muted{color:var(--muted)}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+
+/* banner */
+.banner{border:1px solid var(--danger);color:var(--fg);background:color-mix(in srgb,var(--danger) 10%,var(--bg));border-radius:6px;padding:10px 14px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+
+/* stopwatch */
+.timer{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
+@media (max-width:560px){.timer{grid-template-columns:1fr}}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:600 13px var(--font-body);border:1px solid var(--border);background:var(--panel);color:var(--fg);border-radius:999px;padding:5px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--cc,var(--muted))}
+.chip[aria-pressed="true"]{border-color:var(--cc,var(--fg));background:color-mix(in srgb,var(--cc,var(--fg)) 16%,var(--bg))}
+.chip:disabled{opacity:.5;cursor:not-allowed}
+.clock{font-family:var(--font-mono);font-size:clamp(40px,9vw,60px);font-weight:500;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+.clock.running{color:var(--h3)}
+.timer-meta{font-size:12px;color:var(--muted);margin-top:6px;min-height:18px}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{font-family:var(--font-body)}
+.btn{font-weight:600;font-size:14px;border-radius:6px;padding:8px 16px;border:1px solid var(--border);background:var(--panel);color:var(--fg);cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn.danger{color:var(--danger)}
+.btn.small{padding:4px 10px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* heatmap */
+.heat-scroll{overflow-x:auto;padding-bottom:4px}
+.heat{display:grid;grid-template-columns:30px auto;grid-template-rows:18px auto;column-gap:4px;width:max-content}
+.months{grid-column:2;position:relative;height:18px;font-size:12px;color:var(--muted)}
+.months span{position:absolute;top:0}
+.days{grid-row:2;position:sticky;left:0;z-index:1;background:var(--bg);display:grid;grid-template-rows:repeat(7,var(--cs));gap:var(--cg);font-size:11px;color:var(--muted)}
+.days span{line-height:var(--cs)}
+.grid{grid-row:2;grid-column:2;display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,var(--cs));grid-auto-columns:var(--cs);gap:var(--cg)}
+.heat{--cs:12px;--cg:3px}
+.heat-cell{width:var(--cs);height:var(--cs);border-radius:2px;background:var(--h0)}
+.heat-cell[data-l="1"]{background:var(--h1)} .heat-cell[data-l="2"]{background:var(--h2)}
+.heat-cell[data-l="3"]{background:var(--h3)} .heat-cell[data-l="4"]{background:var(--h4)}
+.heat-cell.future{opacity:.35}
+.heat-cell.today{outline:1.5px solid var(--fg)!important;outline-offset:0}
+.heat-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+.legend{display:flex;align-items:center;gap:3px}
+.legend i{width:11px;height:11px;border-radius:2px;display:inline-block}
+.tip{position:fixed;pointer-events:none;background:var(--fg);color:var(--bg);font-size:12px;padding:6px 9px;border-radius:6px;white-space:nowrap;z-index:20;transform:translate(-50%,calc(-100% - 8px))}
+.filter{display:flex;gap:4px;flex-wrap:wrap}
+.filter .chip{padding:3px 10px;font-size:12px}
+
+/* stats */
+@media (max-width:600px){.stats{grid-template-columns:repeat(2,1fr)!important}}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.stat{padding:14px 16px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);margin:0 -1px -1px 0}
+.stat b{display:block;font-family:var(--font-mono);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+.bars{display:flex;flex-direction:column;gap:10px}
+.bar-row{display:grid;grid-template-columns:120px 1fr 84px;gap:10px;align-items:center;font-size:13px}
+.bar-track{height:8px;background:var(--h0);border-radius:4px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;background:var(--cc)}
+.bar-row .mono{text-align:right;color:var(--muted);font-size:12px}
+.week-bars{display:flex;align-items:flex-end;gap:6px;height:90px;margin-top:4px}
+.wb{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+.wb div{width:100%;max-width:34px;background:var(--h3);border-radius:3px 3px 0 0;min-height:2px}
+.wb span{font-size:10px;color:var(--muted);font-family:var(--font-mono)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:640px){.two{grid-template-columns:1fr}}
+
+/* sessions */
+.sessions{list-style:none;margin:0;padding:0}
+.srow{display:grid;grid-template-columns:72px 120px 1fr auto;gap:10px;align-items:center;padding:10px 16px;border-top:1px solid var(--border)}
+.srow:first-child{border-top:0}
+.srow .note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:13px}
+.tag{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13px}
+.tag{min-width:0;overflow:hidden;white-space:nowrap}
+.tag::before{flex-shrink:0;content:"";width:8px;height:8px;border-radius:50%;background:var(--cc)}
+.edit-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);align-items:end}
+.edit-form label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+input,select{font:14px var(--font-body);color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;width:100%}
+.edit-form .actions{display:flex;gap:6px;flex-wrap:wrap;grid-column:1/-1}
+.empty{padding:24px 16px;color:var(--muted);text-align:center}
+.confirm{color:var(--danger);font-size:12px;font-weight:600}
+@media (max-width:520px){.srow{grid-template-columns:64px 1fr auto;}.srow .note{grid-column:1/-1;order:5}}
+@media (prefers-reduced-motion:no-preference){.heat-cell{transition:background .2s}}
+
+/* subject editor */
+.subj-editor{border-top:1px solid var(--border);background:var(--panel);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.subj-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:6px;background:var(--bg)}
+.subj-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;padding:8px 12px;border-top:1px solid var(--border)}
+.subj-row:first-child{border-top:0}
+.subj-row .name{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subj-row .mono{font-size:12px;color:var(--muted)}
+.swatch{width:22px;height:22px;border-radius:50%;border:2px solid var(--bg);outline:1px solid var(--border);background:var(--cc);cursor:pointer;padding:0}
+.swatch:hover{outline-color:var(--muted)}
+.subj-confirm{grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px}
+.subj-add{display:flex;gap:8px;flex-wrap:wrap}
+.subj-add input{flex:1;min-width:140px;width:auto}
+.subj-hint{font-size:12px;color:var(--muted);margin:0}
+.subj-err{font-size:12px;color:var(--danger);margin:0}
+.data-body{display:flex;flex-direction:column;gap:12px}
+.foot{font-size:12px;color:var(--muted);text-align:center}
+.banner.ok{border-color:var(--h3);background:color-mix(in srgb,var(--h3) 12%,var(--bg))}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <h1>Study Tracker</h1>
+    <div class="sync" id="sync"><span class="dot ok" id="syncDot"></span><span id="syncText">Saved in this browser</span></div>
+  </header>
+
+  <div class="banner" id="banner" hidden><span id="bannerText"></span><span id="bannerAction"></span></div>
+
+  <section class="panel" aria-labelledby="sw-h">
+    <div class="panel-head"><h2 id="sw-h">Stopwatch</h2><button class="btn small" id="subjBtn" aria-expanded="false" aria-controls="subjEditor">Edit subjects</button></div>
+    <div class="subj-editor" id="subjEditor" hidden>
+      <ul class="subj-list" id="subjList"></ul>
+      <form class="subj-add" id="subjAdd">
+        <input id="subjName" type="text" maxlength="20" placeholder="New subject, e.g. Física" aria-label="New subject name" autocomplete="off">
+        <button class="btn primary small" type="submit">Add subject</button>
+      </form>
+      <p class="subj-err" id="subjErr" hidden></p>
+      <p class="subj-hint">Tap a color dot to change it. Removing a subject keeps its past sessions in your totals. Everything is saved in this browser.</p>
+    </div>
+    <div class="panel-body timer">
+      <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <div class="chips" id="courseChips" role="group" aria-label="What are you studying?"></div>
+        <div>
+          <div class="clock" id="clock">00:00:00</div>
+          <div class="timer-meta" id="timerMeta">Pick a subject, then start.</div>
+        </div>
+      </div>
+      <div class="btns" id="timerBtns">
+        <button class="btn primary" id="startBtn">Start</button>
+        <button class="btn" id="pauseBtn" hidden>Pause</button>
+        <button class="btn primary" id="stopBtn" hidden>Stop &amp; save</button>
+        <button class="btn danger" id="discardBtn" hidden>Discard</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="hm-h">
+    <div class="panel-head"><h2 id="hm-h"><span id="heatTotal">–</span> studied in the last year</h2>
+      <div class="filter" id="heatFilter" role="group" aria-label="Filter graph by subject"></div></div>
+    <div class="panel-body">
+      <div class="heat-scroll"><div class="heat" id="heat">
+        <div></div><div class="months" id="months"></div>
+        <div class="days"><span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span></div>
+        <div class="grid" id="grid"></div>
+      </div></div>
+      <div class="heat-foot">
+        <span id="heatNote">Each square is one day. Hover for details.</span>
+        <span class="legend">Less <i style="background:var(--h0)"></i><i style="background:var(--h1)"></i><i style="background:var(--h2)"></i><i style="background:var(--h3)"></i><i style="background:var(--h4)"></i> More</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="two">
+    <section class="panel" aria-labelledby="pc-h">
+      <div class="panel-head"><h2 id="pc-h">By subject</h2></div>
+      <div class="panel-body bars" id="courseBars"></div>
+    </section>
+    <section class="panel" aria-labelledby="wk-h">
+      <div class="panel-head"><h2 id="wk-h">Last 8 weeks</h2><span class="muted mono" style="font-size:12px" id="wkMax"></span></div>
+      <div class="panel-body"><div class="week-bars" id="weekBars"></div></div>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="ss-h">
+    <div class="panel-head"><h2 id="ss-h">Sessions</h2><button class="btn small" id="addBtn">+ Add manually</button></div>
+    <div id="addSlot"></div>
+    <ul class="sessions" id="sessions"></ul>
+  </section>
+
+  <section class="panel" aria-labelledby="dt-h">
+    <div class="panel-head"><h2 id="dt-h">Your data</h2></div>
+    <div class="panel-body data-body">
+      <p class="subj-hint">Sessions live only in this browser. Export a backup now and then, and import it to move to another device.</p>
+      <div class="btns">
+        <button class="btn small" id="exportJson">Export backup (.json)</button>
+        <button class="btn small" id="importBtn">Import backup</button>
+        <button class="btn small" id="exportCsv">Export sessions (.csv)</button>
+        <button class="btn danger small" id="resetBtn">Delete all data</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+      <div id="resetConfirm" class="subj-confirm" hidden></div>
+    </div>
+  </section>
+  <footer class="foot">Study Tracker · data never leaves your browser</footer>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+"use strict";
+/* ============================================================
+   Study Tracker — single-file app. All data lives in localStorage.
+   ============================================================ */
+const STORE = "study-tracker-v1";
+const TIMER_KEY = "study-tracker-timer-v1";
+const PALETTE = ["blue","purple","green","orange","pink","yellow","gray","red","teal"];
+const DEFAULT_SUBJECTS = [
+  ["Math","blue"], ["Physics","purple"], ["Programming","green"],
+  ["Languages","orange"], ["History","pink"], ["Extra","gray"]
+].map(([name,color]) => ({name,color}));
+
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2,"0");
+const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseKey = k => { const [y,m,d] = k.split("-").map(Number); return new Date(y,m-1,d); };
+const fmtMin = m => { m = Math.round(m); if (m < 60) return m + "m"; const h = Math.floor(m/60), r = m%60; return r ? `${h}h ${r}m` : `${h}h`; };
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const nice = d => `${DOW[d.getDay()]}, ${d.getDate()} ${MON[d.getMonth()]}`;
+const newId = () => "s" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+
+/* ---------- storage ---------- */
+let storageOk = true;
+function validDate(k){ return typeof k === "string" && /^\d{4}-\d{2}-\d{2}$/.test(k); }
+function clean(data){
+  const seen = new Set(), subjects = [];
+  (Array.isArray(data && data.subjects) ? data.subjects : []).forEach(s => {
+    const name = String((s && s.name) || "").trim().slice(0,20); if (!name || seen.has(name.toLowerCase())) return; seen.add(name.toLowerCase());
+    subjects.push({name, color: PALETTE.includes(s.color) ? s.color : "gray"});
+  });
+  const sessions = (Array.isArray(data && data.sessions) ? data.sessions : []).filter(s => s && validDate(s.date) && Number(s.min) > 0).map(s => ({
+    id: String(s.id || newId()), date: s.date, course: String(s.course || "").slice(0,20),
+    start: String(s.start || "").slice(0,5), end: String(s.end || "").slice(0,5),
+    min: Math.round(Number(s.min)), note: String(s.note || "").slice(0,200)
+  }));
+  return {version:1, subjects, sessions};
+}
+function readStore(){
+  try{ const raw = localStorage.getItem(STORE); if (raw) return clean(JSON.parse(raw)); }
+  catch(e){ storageOk = false; }
+  return {version:1, subjects: DEFAULT_SUBJECTS.map(s => Object.assign({}, s)), sessions: []};
+}
+let db = readStore();
+function persist(){
+  try{ localStorage.setItem(STORE, JSON.stringify(db)); storageOk = true; status("ok","Saved in this browser"); }
+  catch(e){ storageOk = false; status("err","Not saved"); banner("Your browser blocked saving (private mode or full storage). Export a backup before closing this tab."); }
+}
+// keep several open tabs in step
+window.addEventListener("storage", e => { if (e.key === STORE){ db = readStore(); afterSubjectsChange(); } if (e.key === TIMER_KEY){ T = readTimer(); renderTimer(); } });
+
+let filter = "All";
+const COURSES = () => db.subjects.map(s => s.name);
+const cc = c => { const s = db.subjects.find(x => x.name === c); return `var(--p-${s ? s.color : "gray"})`; };
+
+/* ---------- status + banner ---------- */
+function status(kind, text){ $("syncDot").className = "dot " + kind; $("syncText").textContent = text; }
+function banner(text, ok){ $("banner").hidden = !text; $("banner").classList.toggle("ok", !!ok); $("bannerText").textContent = text || ""; $("bannerAction").replaceChildren();
+  if (text){ const b = document.createElement("button"); b.className = "btn small"; b.textContent = "Dismiss"; b.onclick = () => banner(null); $("bannerAction").append(b); } }
+
+/* ---------- stopwatch ---------- */
+const blankTimer = c => ({course:c || null, startedAt:null, acc:0, first:null});
+function readTimer(){ try{ return JSON.parse(localStorage.getItem(TIMER_KEY)) || blankTimer(); }catch(e){ return blankTimer(); } }
+let T = readTimer();
+function saveTimer(){ try{ localStorage.setItem(TIMER_KEY, JSON.stringify(T)); }catch(e){} }
+const elapsed = () => T.acc + (T.startedAt ? Date.now() - T.startedAt : 0);
+function fmtClock(ms){ const s = Math.floor(ms/1000); return `${pad(Math.floor(s/3600))}:${pad(Math.floor(s/60)%60)}:${pad(s%60)}`; }
+function renderTimer(){
+  const running = !!T.startedAt, active = running || T.acc > 0;
+  $("clock").textContent = fmtClock(elapsed());
+  $("clock").classList.toggle("running", running);
+  $("startBtn").hidden = running; $("startBtn").textContent = T.acc > 0 ? "Resume" : "Start";
+  $("pauseBtn").hidden = !running; $("stopBtn").hidden = !active; $("discardBtn").hidden = !active;
+  document.querySelectorAll("#courseChips .chip").forEach(b => { b.setAttribute("aria-pressed", String(b.dataset.c === T.course)); b.disabled = active && b.dataset.c !== T.course; });
+  const meta = $("timerMeta");
+  if (!T.course) meta.textContent = "Pick a subject, then start.";
+  else if (running) meta.textContent = `Studying ${T.course} · started ${new Date(T.first).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  else if (T.acc > 0) meta.textContent = `${T.course} · paused`;
+  else meta.textContent = `Ready: ${T.course}`;
+  document.title = running ? `${fmtClock(elapsed())} · ${T.course}` : "Study Tracker";
+}
+function buildChips(){
+  const box = $("courseChips"), f = $("heatFilter"); box.replaceChildren(); f.replaceChildren();
+  if (!db.subjects.length){ const m = document.createElement("span"); m.className = "muted"; m.style.fontSize = "13px"; m.textContent = "No subjects yet. Use Edit subjects to add one."; box.append(m); }
+  COURSES().forEach(c => { const b = document.createElement("button"); b.className = "chip"; b.dataset.c = c; b.style.setProperty("--cc", cc(c)); b.textContent = c;
+    b.onclick = () => { if (T.startedAt || T.acc) return; T.course = c; saveTimer(); renderTimer(); }; box.append(b); });
+  ["All", ...COURSES()].forEach(c => { const b = document.createElement("button"); b.className = "chip"; b.dataset.c = c; if (c !== "All") b.style.setProperty("--cc", cc(c)); b.textContent = c;
+    b.setAttribute("aria-pressed", String(c === filter)); b.onclick = () => { filter = c; f.querySelectorAll(".chip").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.c === c))); renderHeat(); }; f.append(b); });
+}
+let wakeLock = null;
+$("startBtn").onclick = () => {
+  if (!T.course){ $("timerMeta").textContent = "Pick a subject first."; return; }
+  T.startedAt = Date.now(); if (!T.first) T.first = T.startedAt; saveTimer(); renderTimer();
+  try{ navigator.wakeLock && navigator.wakeLock.request("screen").then(l => wakeLock = l).catch(()=>{}); }catch(e){}
+};
+function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(e){} wakeLock = null; }
+$("pauseBtn").onclick = () => { T.acc = elapsed(); T.startedAt = null; saveTimer(); renderTimer(); releaseWake(); };
+let discardArmed = false;
+$("discardBtn").onclick = () => {
+  if (!discardArmed){ discardArmed = true; $("discardBtn").textContent = "Tap again to discard"; setTimeout(() => { discardArmed = false; $("discardBtn").textContent = "Discard"; }, 3000); return; }
+  discardArmed = false; $("discardBtn").textContent = "Discard"; T = blankTimer(T.course); saveTimer(); renderTimer(); releaseWake();
+};
+$("stopBtn").onclick = () => {
+  const ms = elapsed(), min = Math.round(ms/60000);
+  if (min < 1){ $("timerMeta").textContent = "Less than a minute. Keep going, or discard."; return; }
+  const startD = new Date(T.first), endD = new Date();
+  db.sessions.push({ id:newId(), date:keyOf(startD), course:T.course, start:`${pad(startD.getHours())}:${pad(startD.getMinutes())}`, end:`${pad(endD.getHours())}:${pad(endD.getMinutes())}`, min, note:"" });
+  persist(); const c = T.course; T = blankTimer(c); saveTimer(); renderTimer(); renderAll(); releaseWake();
+  $("timerMeta").textContent = `Saved ${fmtMin(min)} of ${c}.`;
+};
+setInterval(() => { if (T.startedAt){ $("clock").textContent = fmtClock(elapsed()); document.title = `${fmtClock(elapsed())} · ${T.course}`; } }, 250);
+
+/* ---------- subjects ---------- */
+function afterSubjectsChange(){ if (filter !== "All" && !COURSES().includes(filter)) filter = "All"; buildChips(); renderTimer(); renderAll(); }
+function subjErr(msg){ $("subjErr").hidden = !msg; $("subjErr").textContent = msg || ""; }
+let removing = null;
+function renderSubjEditor(){
+  const ul = $("subjList"); ul.replaceChildren();
+  const mins = {}; db.sessions.forEach(s => mins[s.course] = (mins[s.course]||0) + s.min);
+  if (!db.subjects.length){ const li = document.createElement("li"); li.className = "empty"; li.textContent = "No subjects yet. Add your first one below."; ul.append(li); return; }
+  db.subjects.forEach(s => {
+    const li = document.createElement("li"); li.className = "subj-row";
+    const sw = document.createElement("button"); sw.type = "button"; sw.className = "swatch"; sw.style.setProperty("--cc", cc(s.name));
+    sw.setAttribute("aria-label", `Change color of ${s.name} (now ${s.color})`); sw.title = "Change color";
+    sw.onclick = () => { s.color = PALETTE[(PALETTE.indexOf(s.color) + 1) % PALETTE.length]; persist(); afterSubjectsChange(); };
+    const nm = document.createElement("span"); nm.className = "name"; nm.textContent = s.name;
+    const t = document.createElement("span"); t.className = "mono"; t.textContent = mins[s.name] ? fmtMin(mins[s.name]) : "—";
+    const rm = document.createElement("button"); rm.type = "button"; rm.className = "btn danger small"; rm.textContent = "Remove";
+    rm.onclick = () => { removing = s.name; renderSubjEditor(); };
+    li.append(sw, nm, t, rm);
+    if (removing === s.name){
+      const box = document.createElement("div"); box.className = "subj-confirm";
+      const q = document.createElement("span"); q.className = "confirm";
+      if (T.course === s.name && (T.startedAt || T.acc > 0)){
+        q.textContent = `The stopwatch is on ${s.name}. Stop or discard it first.`;
+        const ok = document.createElement("button"); ok.type = "button"; ok.className = "btn small"; ok.textContent = "OK"; ok.onclick = () => { removing = null; renderSubjEditor(); };
+        box.append(q, ok);
+      } else {
+        q.textContent = `Remove ${s.name}?` + (mins[s.name] ? ` Its ${fmtMin(mins[s.name])} of past sessions stay in your totals.` : "");
+        const yes = document.createElement("button"); yes.type = "button"; yes.className = "btn danger small"; yes.textContent = "Yes, remove";
+        yes.onclick = () => { removing = null; db.subjects = db.subjects.filter(x => x.name !== s.name); if (T.course === s.name){ T.course = null; saveTimer(); } persist(); afterSubjectsChange(); };
+        const no = document.createElement("button"); no.type = "button"; no.className = "btn small"; no.textContent = "Keep it"; no.onclick = () => { removing = null; renderSubjEditor(); };
+        box.append(q, yes, no);
+      }
+      li.append(box);
+    }
+    ul.append(li);
+  });
+}
+$("subjBtn").onclick = () => { const ed = $("subjEditor"); ed.hidden = !ed.hidden; $("subjBtn").setAttribute("aria-expanded", String(!ed.hidden)); $("subjBtn").textContent = ed.hidden ? "Edit subjects" : "Done"; removing = null; subjErr(null); renderSubjEditor(); };
+$("subjAdd").addEventListener("submit", e => {
+  e.preventDefault(); const name = $("subjName").value.trim().replace(/\s+/g, " ");
+  if (!name) return subjErr("Type a name first.");
+  if (name.toLowerCase() === "all") return subjErr("“All” is used by the graph filter. Pick another name.");
+  if (db.subjects.some(s => s.name.toLowerCase() === name.toLowerCase())) return subjErr(`${name} is already in your list.`);
+  subjErr(null);
+  const used = new Set(db.subjects.map(s => s.color));
+  db.subjects.push({name, color: PALETTE.find(p => !used.has(p)) || PALETTE[db.subjects.length % PALETTE.length]});
+  persist(); $("subjName").value = ""; afterSubjectsChange();
+});
+
+/* ---------- aggregates ---------- */
+function byDay(list){ const m = new Map(); list.forEach(s => m.set(s.date, (m.get(s.date)||0) + s.min)); return m; }
+function level(m){ return m <= 0 ? 0 : m < 30 ? 1 : m < 60 ? 2 : m < 120 ? 3 : 4; }
+
+/* ---------- heatmap: last 53 weeks, like GitHub ---------- */
+function renderHeat(){
+  const list = filter === "All" ? db.sessions : db.sessions.filter(s => s.course === filter);
+  const days = byDay(list), today = new Date(), todayK = keyOf(today), grid = $("grid"), months = $("months");
+  grid.replaceChildren(); months.replaceChildren();
+  const end = new Date(today); end.setDate(end.getDate() + (6 - (end.getDay()+6)%7));   // Sunday of this week
+  const start = new Date(end); start.setDate(start.getDate() - 53*7 + 1);              // Monday 53 weeks back
+  let col = 0, lastMonth = -1, total = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)){
+    const k = keyOf(d), m = days.get(k) || 0, dow = (d.getDay()+6)%7;
+    if (dow === 0){ if (d.getMonth() !== lastMonth){ if (col > 0 || d.getDate() <= 7){ const sp = document.createElement("span"); sp.textContent = MON[d.getMonth()]; sp.style.left = `calc(${col} * (var(--cs) + var(--cg)))`; months.append(sp); } lastMonth = d.getMonth(); } col++; }
+    const cell = document.createElement("div"); cell.className = "heat-cell"; cell.dataset.l = level(m); cell.dataset.k = k; cell.dataset.m = m;
+    if (k > todayK) cell.classList.add("future"); if (k === todayK) cell.classList.add("today");
+    grid.append(cell); total += m;
+  }
+  $("heatTotal").textContent = fmtMin(total);
+  $("heatNote").textContent = filter === "All" ? "Each square is one day. Hover for details." : `Showing ${filter} only.`;
+  const sc = document.querySelector(".heat-scroll"); if (sc) sc.scrollLeft = sc.scrollWidth;   // show the most recent weeks first on narrow screens
+}
+const tip = $("tip");
+$("grid").addEventListener("pointerover", e => {
+  const c = e.target.closest(".heat-cell"); if (!c){ tip.hidden = true; return; }
+  const d = parseKey(c.dataset.k), m = Number(c.dataset.m);
+  const per = {}; db.sessions.filter(s => s.date === c.dataset.k && (filter === "All" || s.course === filter)).forEach(s => per[s.course] = (per[s.course]||0) + s.min);
+  const detail = Object.entries(per).map(([k,v]) => `${k} ${fmtMin(v)}`).join(" · ");
+  tip.textContent = m ? `${fmtMin(m)} on ${nice(d)}${detail ? " — " + detail : ""}` : `No study on ${nice(d)}`;
+  const r = c.getBoundingClientRect(); tip.style.left = (r.left + r.width/2) + "px"; tip.style.top = r.top + "px"; tip.hidden = false;
+});
+$("grid").addEventListener("pointerleave", () => tip.hidden = true);
+
+/* ---------- stats ---------- */
+function renderStats(){
+  const S = db.sessions, days = byDay(S), total = S.reduce((a,s) => a + s.min, 0);
+  const today = new Date(); today.setHours(0,0,0,0);
+  let cur = 0, d = new Date(today); if (!days.get(keyOf(d))) d.setDate(d.getDate()-1);
+  while (days.get(keyOf(d))){ cur++; d.setDate(d.getDate()-1); }
+  const keys = [...days.keys()].filter(k => days.get(k) > 0).sort();
+  let best = 0, run = 0, prev = null;
+  keys.forEach(k => { const t = parseKey(k); run = (prev && Math.round((t - prev) / 864e5) === 1) ? run + 1 : 1; best = Math.max(best, run); prev = t; });
+  let topK = null; days.forEach((v,k) => { if (!topK || v > days.get(topK)) topK = k; });
+  const wk = new Date(today); wk.setDate(wk.getDate() - ((wk.getDay()+6)%7));
+  const thisWeek = S.filter(s => parseKey(s.date) >= wk).reduce((a,s) => a + s.min, 0);
+  const todayMin = days.get(keyOf(today)) || 0;
+  let pctVal = "–", pctLab = "of days studied";
+  if (keys.length){ const first = parseKey(keys[0]); const span = Math.max(1, Math.round((today - first) / 864e5) + 1);
+    pctVal = Math.round(keys.filter(k => parseKey(k) <= today).length / span * 100) + "%";
+    pctLab = `of days studied · since ${first.getDate()} ${MON[first.getMonth()]}`; }
+  const tiles = [
+    [fmtMin(todayMin), "today"], [fmtMin(thisWeek), "this week"], [fmtMin(total), "total"], [pctVal, pctLab],
+    [cur + (cur === 1 ? " day" : " days"), "current streak"], [best + (best === 1 ? " day" : " days"), "longest streak"],
+    [topK ? fmtMin(days.get(topK)) : "–", topK ? "best day · " + nice(parseKey(topK)) : "best day"], [String(keys.length), "active days"]
+  ];
+  $("stats").replaceChildren(...tiles.map(([v,l]) => { const el = document.createElement("div"); el.className = "stat"; const b = document.createElement("b"); b.textContent = v; const sp = document.createElement("span"); sp.textContent = l; el.append(b, sp); return el; }));
+  // by subject
+  const per = {}; COURSES().forEach(c => per[c] = 0); let other = 0;
+  S.forEach(s => { if (s.course in per) per[s.course] += s.min; else other += s.min; });
+  const rowsOut = COURSES(); if (other > 0){ per["Removed"] = other; rowsOut.push("Removed"); }
+  const max = Math.max(1, ...Object.values(per));
+  $("courseBars").replaceChildren(...rowsOut.map(c => {
+    const row = document.createElement("div"); row.className = "bar-row"; row.style.setProperty("--cc", c === "Removed" ? "var(--muted)" : cc(c));
+    const name = document.createElement("span"); name.className = "tag"; name.textContent = c; if (c === "Removed") name.title = "Sessions from subjects you removed";
+    const tr = document.createElement("div"); tr.className = "bar-track"; const f = document.createElement("div"); f.className = "bar-fill"; f.style.width = (per[c]/max*100) + "%"; tr.append(f);
+    const v = document.createElement("span"); v.className = "mono"; v.textContent = (per[c] ? fmtMin(per[c]) : "0m") + (total ? ` · ${Math.round(per[c]/total*100)}%` : "");
+    row.append(name, tr, v); return row; }));
+  if (!rowsOut.length) $("courseBars").textContent = "Add a subject to see the split.";
+  // last 8 weeks
+  const weeks = [];
+  for (let i = 7; i >= 0; i--){ const s = new Date(wk); s.setDate(s.getDate() - 7*i); const e = new Date(s); e.setDate(e.getDate()+7);
+    weeks.push({s, m: S.filter(x => { const t = parseKey(x.date); return t >= s && t < e; }).reduce((a,x) => a + x.min, 0)}); }
+  const wmax = Math.max(1, ...weeks.map(w => w.m));
+  $("wkMax").textContent = weeks.some(w => w.m) ? "peak " + fmtMin(wmax) : "";
+  $("weekBars").replaceChildren(...weeks.map(w => { const el = document.createElement("div"); el.className = "wb"; el.title = `Week of ${w.s.getDate()} ${MON[w.s.getMonth()]}: ${fmtMin(w.m)}`;
+    const bar = document.createElement("div"); bar.style.height = (w.m/wmax*70) + "px"; const lab = document.createElement("span"); lab.textContent = `${w.s.getDate()}/${w.s.getMonth()+1}`; el.append(bar, lab); return el; }));
+}
+
+/* ---------- sessions list ---------- */
+let editing = null;
+function courseSelect(id, val){ const s = document.createElement("select"); s.id = id; const opts = COURSES(); if (val && !opts.includes(val)) opts.push(val);
+  opts.forEach(c => { const o = document.createElement("option"); o.value = c; o.textContent = c; if (c === val) o.selected = true; s.append(o); }); return s; }
+function field(labelText, el){ const l = document.createElement("label"); l.append(labelText, el); return l; }
+function input(id, type, val, extra){ const i = document.createElement("input"); i.id = id; i.type = type; i.value = val; Object.assign(i, extra||{}); return i; }
+function editForm(s, onSave, onCancel, onDelete){
+  const f = document.createElement("form"); f.className = "edit-form";
+  const pre = s ? s.id : "new";
+  const dI = input(`d-${pre}`, "date", s ? s.date : keyOf(new Date()));
+  const cI = courseSelect(`c-${pre}`, s ? s.course : (T.course || COURSES()[0] || ""));
+  const mI = input(`m-${pre}`, "number", s ? s.min : 30, {min:1, max:1440, step:1, required:true});
+  const nI = input(`n-${pre}`, "text", s ? s.note : "", {placeholder:"e.g. chapter 3, exercises", maxLength:200});
+  f.append(field("Date", dI), field("Subject", cI), field("Minutes", mI), field("Note", nI));
+  const act = document.createElement("div"); act.className = "actions";
+  const save = document.createElement("button"); save.className = "btn primary small"; save.type = "submit"; save.textContent = s ? "Save changes" : "Add session";
+  const cancel = document.createElement("button"); cancel.className = "btn small"; cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = onCancel;
+  act.append(save, cancel);
+  if (onDelete){
+    const del = document.createElement("button"); del.className = "btn danger small"; del.type = "button"; del.textContent = "Delete";
+    del.onclick = () => { act.replaceChildren(); const q = document.createElement("span"); q.className = "confirm"; q.textContent = "Delete this session?";
+      const yes = document.createElement("button"); yes.className = "btn danger small"; yes.type = "button"; yes.textContent = "Yes, delete"; yes.onclick = onDelete;
+      const no = document.createElement("button"); no.className = "btn small"; no.type = "button"; no.textContent = "Keep it"; no.onclick = () => renderSessions();
+      act.append(q, yes, no); };
+    act.append(del);
+  }
+  f.append(act);
+  f.addEventListener("submit", e => { e.preventDefault(); const min = Math.round(Number(mI.value));
+    if (!dI.value || !(min >= 1) || !cI.value) return; onSave({date:dI.value, course:cI.value, min, note:nI.value.trim()}); });
+  return f;
+}
+let showAll = false;
+function renderSessions(){
+  const ul = $("sessions"); ul.replaceChildren();
+  const list = [...db.sessions].sort((a,b) => b.date.localeCompare(a.date) || (b.start||"").localeCompare(a.start||""));
+  if (!list.length){ const li = document.createElement("li"); li.className = "empty"; li.textContent = "No sessions yet. Start the stopwatch or add one manually."; ul.append(li); return; }
+  const shown = showAll ? list : list.slice(0, 30);
+  shown.forEach(s => {
+    const li = document.createElement("li");
+    if (editing === s.id){
+      li.append(editForm(s,
+        v => { Object.assign(s, v); persist(); editing = null; renderAll(); },
+        () => { editing = null; renderSessions(); },
+        () => { db.sessions = db.sessions.filter(x => x.id !== s.id); persist(); editing = null; renderAll(); }));
+    } else {
+      li.className = "srow";
+      const d = document.createElement("span"); d.className = "mono"; d.style.fontSize = "13px"; const dt = parseKey(s.date); d.textContent = `${pad(dt.getDate())} ${MON[dt.getMonth()]}`; d.title = nice(dt);
+      const c = document.createElement("span"); c.className = "tag"; c.style.setProperty("--cc", cc(s.course)); c.textContent = s.course;
+      const n = document.createElement("span"); n.className = "note"; n.textContent = [s.start && s.end ? `${s.start}–${s.end}` : "", s.note].filter(Boolean).join(" · ");
+      const right = document.createElement("span"); right.style.display = "flex"; right.style.gap = "10px"; right.style.alignItems = "center";
+      const m = document.createElement("span"); m.className = "mono"; m.style.fontWeight = "500"; m.textContent = fmtMin(s.min);
+      const e = document.createElement("button"); e.className = "btn small"; e.textContent = "Edit"; e.onclick = () => { editing = s.id; renderSessions(); };
+      right.append(m, e); li.append(d, c, n, right);
+    }
+    ul.append(li);
+  });
+  if (list.length > 30){ const li = document.createElement("li"); li.className = "empty"; const b = document.createElement("button"); b.className = "btn small";
+    b.textContent = showAll ? "Show recent only" : `Show all ${list.length} sessions`; b.onclick = () => { showAll = !showAll; renderSessions(); }; li.append(b); ul.append(li); }
+}
+$("addBtn").onclick = () => {
+  const slot = $("addSlot"); if (slot.firstChild){ slot.replaceChildren(); return; }
+  if (!db.subjects.length){ banner("Add a subject first (Edit subjects, at the top)."); return; }
+  slot.append(editForm(null, v => { db.sessions.push(Object.assign({id:newId(), start:"", end:""}, v)); persist(); slot.replaceChildren(); renderAll(); },
+    () => slot.replaceChildren(), null));
+};
+
+/* ---------- import / export ---------- */
+function download(name, text, type){
+  const url = URL.createObjectURL(new Blob([text], {type}));
+  const a = document.createElement("a"); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$("exportJson").onclick = () => download(`study-tracker-${keyOf(new Date())}.json`, JSON.stringify(db, null, 2), "application/json");
+$("exportCsv").onclick = () => {
+  const q = v => `"${String(v).replace(/"/g,'""')}"`;
+  const rows = [["date","subject","start","end","minutes","note"], ...[...db.sessions].sort((a,b) => a.date.localeCompare(b.date)).map(s => [s.date, s.course, s.start, s.end, s.min, s.note])];
+  download(`study-sessions-${keyOf(new Date())}.csv`, rows.map(r => r.map(q).join(",")).join("\n"), "text/csv");
+};
+$("importBtn").onclick = () => $("importFile").click();
+$("importFile").onchange = async e => {
+  const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return;
+  try{
+    const data = clean(JSON.parse(await file.text()));
+    if (!data.subjects.length && !data.sessions.length) throw new Error("empty");
+    db = data; persist(); afterSubjectsChange();
+    banner(`Imported ${data.sessions.length} sessions and ${data.subjects.length} subjects.`, true);
+  }catch(err){ banner("That file isn't a Study Tracker backup. Use a .json file made with “Export backup”."); }
+};
+$("resetBtn").onclick = () => {
+  const box = $("resetConfirm"); box.hidden = false; box.replaceChildren();
+  const q = document.createElement("span"); q.className = "confirm"; q.textContent = `Delete all ${db.sessions.length} sessions and reset subjects? This can't be undone.`;
+  const yes = document.createElement("button"); yes.className = "btn danger small"; yes.textContent = "Yes, delete everything";
+  yes.onclick = () => { db = {version:1, subjects: DEFAULT_SUBJECTS.map(s => Object.assign({}, s)), sessions: []}; T = blankTimer(); saveTimer(); persist(); box.hidden = true; afterSubjectsChange(); };
+  const no = document.createElement("button"); no.className = "btn small"; no.textContent = "Cancel"; no.onclick = () => { box.hidden = true; };
+  box.append(q, yes, no);
+};
+
+function renderAll(){ renderHeat(); renderStats(); renderSessions(); if (!$("subjEditor").hidden) renderSubjEditor(); }
+
+/* ---------- boot ---------- */
+buildChips(); renderTimer(); renderAll();
+if (!storageOk){ status("err","Not saved"); banner("Your browser is blocking storage, so sessions won't be kept after you close this tab."); }
+</script>
+</body>
+</html>
